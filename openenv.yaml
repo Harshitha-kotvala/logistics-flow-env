@@ -1,0 +1,37 @@
+id: logistics_flow
+name: Logistics Flow Environment
+description: >
+  A warehouse management simulation where an agent manages inventory,
+  fulfills orders, and minimizes penalties under time constraints.
+
+entrypoint: app:app
+
+observation_space:
+  type: object
+  properties:
+    inventory:
+      type: object
+    orders:
+      type: array
+    delayed_orders:
+      type: array
+    inbound_shipments:
+      type: array
+    current_step:
+      type: integer
+    total_penalty:
+      type: number
+    fulfilled_orders:
+      type: integer
+
+action_space:
+  type: object
+  properties:
+    action_type:
+      type: string
+    order_id:
+      type: integer
+    item:
+      type: string
+    quantity:
+      type: integer
