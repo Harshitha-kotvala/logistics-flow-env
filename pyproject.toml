@@ -1,0 +1,20 @@
+[project]
+name = "logistics-flow-env"
+version = "0.1.0"
+description = "Logistics environment for inventory and order management"
+authors = [
+    { name = "Harshitha Kotvala" }
+]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "openenv-core>=0.2.0"
+]
+
+[project.scripts]
+server = "server.app:main"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
