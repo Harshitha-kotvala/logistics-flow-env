@@ -4,22 +4,18 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from env import LogisticsEnv, Action
 
-# -------------------------
-# LOAD ENV
-# -------------------------
 load_dotenv()
 
 # -------------------------
-# ENV CONFIG (MANDATORY)
+# REQUIRED ENV VARIABLES (from judge)
 # -------------------------
-API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+API_BASE_URL = os.getenv("API_BASE_URL")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
-HF_TOKEN = os.getenv("HF_TOKEN")
+API_KEY = os.getenv("API_KEY")
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-
+# Initialize OpenAI client 
 client = OpenAI(
-    api_key=OPENAI_API_KEY if OPENAI_API_KEY else "dummy",
+    api_key=API_KEY,
     base_url=API_BASE_URL
 )
 
@@ -28,6 +24,7 @@ client = OpenAI(
 # -------------------------
 def get_priority_value(priority):
     return {"high": 3, "medium": 2, "low": 1}.get(priority, 0)
+
 
 def fallback_action(observation):
     sorted_orders = sorted(
@@ -40,35 +37,42 @@ def fallback_action(observation):
         if observation.inventory.get(order.item, 0) >= order.qty:
             return Action(action_type="fulfill", order_id=order.id)
 
-    # optional restock improvement
-    if sorted_orders:
-        return Action(action_type="restock", item=sorted_orders[0].item, quantity=2)
-
     return Action(action_type="wait")
 
+
 # -------------------------
-# MODEL ACTION
+# LLM ACTION (CRITICAL FIX)
 # -------------------------
 def get_model_action(observation, step):
-    # reduce API usage
-    if step % 2 != 0:
-        return fallback_action(observation)
-
     try:
         response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": "Return action in JSON with action_type, order_id, item, quantity."},
-                {"role": "user", "content": str(observation)}
+                {
+                    "role": "system",
+                    "content": "You are a warehouse agent. Respond ONLY in JSON with action_type, order_id, item, quantity."
+                },
+                {
+                    "role": "user",
+                    "content": str(observation)
+                }
             ],
             response_format={"type": "json_object"}
         )
 
         action_dict = json.loads(response.choices[0].message.content)
-        return Action(**action_dict)
+
+        return Action(
+            action_type=action_dict.get("action_type", "wait"),
+            order_id=action_dict.get("order_id"),
+            item=action_dict.get("item"),
+            quantity=action_dict.get("quantity")
+        )
 
     except Exception:
+        # If LLM fails → fallback
         return fallback_action(observation)
+
 
 # -------------------------
 # RUN TASK
@@ -83,6 +87,7 @@ def run_task(task_name, task_fn):
         print(f"[STEP {step}]")
 
         action = get_model_action(obs, step)
+
         obs, reward, done, _ = env.step(action)
 
         print(f"Action: {action.action_type}")
@@ -92,6 +97,7 @@ def run_task(task_name, task_fn):
             break
 
     print(f"[END] {task_name.upper()}")
+
 
 # -------------------------
 # MAIN
@@ -103,8 +109,6 @@ def main():
     run_task("medium", medium_task)
     run_task("hard", hard_task)
 
-# -------------------------
-# ENTRY
-# -------------------------
+
 if __name__ == "__main__":
     main()
