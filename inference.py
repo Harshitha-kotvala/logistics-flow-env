@@ -2,14 +2,15 @@ import os
 import sys
 import json
 import argparse
-import requests
+import urllib.request
+import urllib.error
 from dotenv import load_dotenv
 
 load_dotenv()
 
 API_BASE_URL = os.getenv("API_BASE_URL")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
-API_KEY = os.getenv("API_KEY", "dummy-key")  # never None
+API_KEY = os.getenv("API_KEY", "dummy-key")
 
 # -------------------------
 # OpenAI client — safe init
@@ -20,15 +21,32 @@ def get_client():
     global client
     if client is not None:
         return client
+    if not API_BASE_URL:
+        return None
     try:
         from openai import OpenAI
         client = OpenAI(
             api_key=API_KEY,
-            base_url=API_BASE_URL if API_BASE_URL else "https://api.openai.com/v1"
+            base_url=API_BASE_URL
         )
         return client
     except Exception:
         return None
+
+
+# -------------------------
+# HTTP helper using urllib (stdlib only)
+# -------------------------
+def http_post(url, payload):
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
 
 # -------------------------
@@ -44,7 +62,10 @@ def priority_value(p):
 def fallback_action(orders):
     if not orders:
         return None
-    sorted_orders = sorted(orders, key=lambda o: (o["deadline"], -priority_value(o["priority"])))
+    sorted_orders = sorted(
+        orders,
+        key=lambda o: (o["deadline"], -priority_value(o["priority"]))
+    )
     return sorted_orders[0]["id"]
 
 
@@ -53,12 +74,12 @@ def fallback_action(orders):
 # -------------------------
 def llm_action(orders, step):
     c = get_client()
-    if c is None or not API_BASE_URL:
+    if c is None:
         return fallback_action(orders)
     try:
         prompt = (
-            f"Step {step}. Warehouse orders: {json.dumps(orders)}. "
-            "Pick the best order_id to fulfill next. "
+            f"Step {step}. Orders: {json.dumps(orders)}. "
+            "Pick the best order_id to fulfill. "
             'Respond ONLY with JSON: {"order_id": <int>, "reasoning": "<str>"}'
         )
         response = c.chat.completions.create(
@@ -81,10 +102,7 @@ def llm_action(orders, step):
 def run_task(base_url, task_id):
     print(f"[START] task_id={task_id}")
 
-    # Reset
-    r = requests.post(f"{base_url}/reset", json={"task_id": task_id}, timeout=30)
-    r.raise_for_status()
-    obs = r.json()
+    obs = http_post(f"{base_url}/reset", {"task_id": task_id})
 
     for step in range(20):
         orders = obs.get("orders", [])
@@ -98,22 +116,18 @@ def run_task(base_url, task_id):
         if order_id is None:
             break
 
-        reasoning = "Prioritized by deadline and priority weight"
         print(f"[STEP {step}] order_id={order_id}")
 
-        r = requests.post(
+        result = http_post(
             f"{base_url}/step",
-            json={"order_id": order_id, "reasoning": reasoning},
-            timeout=30
+            {"order_id": order_id, "reasoning": "Prioritized by deadline and priority"}
         )
-        r.raise_for_status()
-        result = r.json()
 
         obs = result.get("observation", {})
         reward = result.get("reward", 0)
         done = result.get("done", False)
 
-        print(f"  reward={reward} done={done} feedback={obs.get('feedback', '')}")
+        print(f"  reward={reward} done={done}")
 
         if done:
             break
