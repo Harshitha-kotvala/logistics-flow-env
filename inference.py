@@ -1,31 +1,33 @@
 import os
-import sys
 import json
 import argparse
 import urllib.request
-import urllib.error
 from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv()
 
-API_BASE_URL = os.getenv("API_BASE_URL")
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
-API_KEY = os.getenv("API_KEY", "dummy-key")
+# Judge injects these — must use them, no hardcoding
+API_BASE_URL = os.environ["API_BASE_URL"]   # will raise clearly if missing
+MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+API_KEY      = os.environ["API_KEY"]        # will raise clearly if missing
 
-client = None
+# Initialize client at module level using injected env vars
+client = OpenAI(
+    api_key=API_KEY,
+    base_url=API_BASE_URL
+)
 
-def get_client():
-    global client
-    if client is not None:
-        return client
-    if not API_BASE_URL:
+# -------------------------
+# Helpers
+# -------------------------
+def priority_value(p):
+    return {"high": 3, "medium": 2, "low": 1}.get(p, 0)
+
+def fallback_action(orders):
+    if not orders:
         return None
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
-        return client
-    except Exception:
-        return None
+    return sorted(orders, key=lambda o: (o["deadline"], -priority_value(o["priority"])))[0]["id"]
 
 def http_post(url, payload):
     data = json.dumps(payload).encode("utf-8")
@@ -37,52 +39,46 @@ def http_post(url, payload):
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
-def priority_value(p):
-    return {"high": 3, "medium": 2, "low": 1}.get(p, 0)
-
-def fallback_action(orders):
-    if not orders:
-        return None
-    sorted_orders = sorted(
-        orders,
-        key=lambda o: (o["deadline"], -priority_value(o["priority"]))
-    )
-    return sorted_orders[0]["id"]
-
+# -------------------------
+# LLM action — always uses judge's proxy
+# -------------------------
 def llm_action(orders, step):
-    c = get_client()
-    if c is None:
-        return fallback_action(orders)
     try:
         prompt = (
-            f"Step {step}. Orders: {json.dumps(orders)}. "
-            "Pick the best order_id to fulfill. "
-            'Respond ONLY with JSON: {"order_id": <int>, "reasoning": "<str>"}'
+            f"Step {step}. Warehouse orders (JSON): {json.dumps(orders)}.\n"
+            "You must pick ONE order_id to fulfill next based on deadline urgency and priority.\n"
+            'Respond ONLY with valid JSON: {"order_id": <int>, "reasoning": "<string>"}'
         )
-        response = c.chat.completions.create(
+        response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": "You are a warehouse fulfillment agent."},
+                {"role": "system", "content": "You are an expert warehouse fulfillment agent. Always respond in valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
             response_format={"type": "json_object"}
         )
         data = json.loads(response.choices[0].message.content)
         return int(data["order_id"])
-    except Exception:
+    except Exception as e:
+        print(f"  [LLM fallback] {e}")
         return fallback_action(orders)
 
+# -------------------------
+# Run one task
+# -------------------------
 def run_task(base_url, task_id):
-    print(f"[START] task_id={task_id}")
+    print(f"[START] {task_id.upper()}")
+
     obs = http_post(f"{base_url}/reset", {"task_id": task_id})
 
     for step in range(20):
         orders = obs.get("orders", [])
-        done = obs.get("done", False)
+        done   = obs.get("done", False)
+
         if done or not orders:
             break
 
-        order_id = llm_action(orders, step) if API_BASE_URL else fallback_action(orders)
+        order_id = llm_action(orders, step)
         if order_id is None:
             break
 
@@ -90,20 +86,25 @@ def run_task(base_url, task_id):
 
         result = http_post(
             f"{base_url}/step",
-            {"order_id": order_id, "reasoning": "Prioritized by deadline and priority"}
+            {"order_id": order_id, "reasoning": "Chosen by LLM based on deadline and priority"}
         )
-        obs = result.get("observation", {})
+
+        obs    = result.get("observation", {})
         reward = result.get("reward", 0)
-        done = result.get("done", False)
-        print(f"  reward={reward} done={done}")
+        done   = result.get("done", False)
+
+        print(f"  reward={reward} done={done} feedback={obs.get('feedback','')}")
+
         if done:
             break
 
-    print(f"[END] task_id={task_id}")
+    print(f"[END] {task_id.upper()}")
 
+# -------------------------
+# Main
+# -------------------------
 def main():
     parser = argparse.ArgumentParser()
-    # --url is now OPTIONAL with a default pointing to your HF Space
     parser.add_argument(
         "--url",
         default="https://harshithakotvala-logistics-flow-env.hf.space",
@@ -116,7 +117,7 @@ def main():
         try:
             run_task(base_url, task_id)
         except Exception as e:
-            print(f"[ERROR] task_id={task_id} failed: {e}")
+            print(f"[ERROR] task={task_id}: {e}")
 
 if __name__ == "__main__":
     main()
