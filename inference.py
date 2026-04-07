@@ -7,16 +7,28 @@ from openai import OpenAI
 
 load_dotenv()
 
-# Judge injects these — must use them, no hardcoding
-API_BASE_URL = os.environ["API_BASE_URL"]   # will raise clearly if missing
+API_BASE_URL = os.environ.get("API_BASE_URL", "").rstrip("/")
 MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-API_KEY      = os.environ["API_KEY"]        # will raise clearly if missing
+API_KEY      = os.environ.get("API_KEY", "dummy-key")
 
-# Initialize client at module level using injected env vars
+# Must use OpenAI client per hackathon rules
 client = OpenAI(
     api_key=API_KEY,
-    base_url=API_BASE_URL
+    base_url=API_BASE_URL if API_BASE_URL else "https://api.openai.com/v1"
 )
+
+# -------------------------
+# HTTP helper for env API
+# -------------------------
+def http_post(url, payload):
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
 # -------------------------
 # Helpers
@@ -29,36 +41,26 @@ def fallback_action(orders):
         return None
     return sorted(orders, key=lambda o: (o["deadline"], -priority_value(o["priority"])))[0]["id"]
 
-def http_post(url, payload):
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST"
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode("utf-8"))
-
 # -------------------------
-# LLM action — always uses judge's proxy
+# LLM action via OpenAI client
 # -------------------------
 def llm_action(orders, step):
     try:
         prompt = (
-            f"Step {step}. Warehouse orders (JSON): {json.dumps(orders)}.\n"
-            "You must pick ONE order_id to fulfill next based on deadline urgency and priority.\n"
-            'Respond ONLY with valid JSON: {"order_id": <int>, "reasoning": "<string>"}'
+            f"Step {step}. Warehouse orders: {json.dumps(orders)}.\n"
+            "Pick ONE order_id to fulfill next (highest priority + nearest deadline).\n"
+            'Respond ONLY with JSON: {"order_id": <int>, "reasoning": "<str>"}'
         )
         response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": "You are an expert warehouse fulfillment agent. Always respond in valid JSON only."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": "You are a warehouse fulfillment agent. Respond in JSON only."},
+                {"role": "user",   "content": prompt}
             ],
             response_format={"type": "json_object"}
         )
-        data = json.loads(response.choices[0].message.content)
-        return int(data["order_id"])
+        content = response.choices[0].message.content
+        return int(json.loads(content)["order_id"])
     except Exception as e:
         print(f"  [LLM fallback] {e}")
         return fallback_action(orders)
@@ -92,7 +94,6 @@ def run_task(base_url, task_id):
         obs    = result.get("observation", {})
         reward = result.get("reward", 0)
         done   = result.get("done", False)
-
         print(f"  reward={reward} done={done} feedback={obs.get('feedback','')}")
 
         if done:
