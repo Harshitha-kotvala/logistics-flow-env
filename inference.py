@@ -12,9 +12,6 @@ API_BASE_URL = os.getenv("API_BASE_URL")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
 API_KEY = os.getenv("API_KEY", "dummy-key")
 
-# -------------------------
-# OpenAI client — safe init
-# -------------------------
 client = None
 
 def get_client():
@@ -25,40 +22,24 @@ def get_client():
         return None
     try:
         from openai import OpenAI
-        client = OpenAI(
-            api_key=API_KEY,
-            base_url=API_BASE_URL
-        )
+        client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
         return client
     except Exception:
         return None
 
-
-# -------------------------
-# HTTP helper using urllib (stdlib only)
-# -------------------------
 def http_post(url, payload):
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        url,
-        data=data,
+        url, data=data,
         headers={"Content-Type": "application/json"},
         method="POST"
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
-
-# -------------------------
-# Priority helper
-# -------------------------
 def priority_value(p):
     return {"high": 3, "medium": 2, "low": 1}.get(p, 0)
 
-
-# -------------------------
-# Fallback: rule-based agent
-# -------------------------
 def fallback_action(orders):
     if not orders:
         return None
@@ -68,10 +49,6 @@ def fallback_action(orders):
     )
     return sorted_orders[0]["id"]
 
-
-# -------------------------
-# LLM action
-# -------------------------
 def llm_action(orders, step):
     c = get_client()
     if c is None:
@@ -95,24 +72,17 @@ def llm_action(orders, step):
     except Exception:
         return fallback_action(orders)
 
-
-# -------------------------
-# Run one task via HTTP API
-# -------------------------
 def run_task(base_url, task_id):
     print(f"[START] task_id={task_id}")
-
     obs = http_post(f"{base_url}/reset", {"task_id": task_id})
 
     for step in range(20):
         orders = obs.get("orders", [])
         done = obs.get("done", False)
-
         if done or not orders:
             break
 
         order_id = llm_action(orders, step) if API_BASE_URL else fallback_action(orders)
-
         if order_id is None:
             break
 
@@ -122,27 +92,24 @@ def run_task(base_url, task_id):
             f"{base_url}/step",
             {"order_id": order_id, "reasoning": "Prioritized by deadline and priority"}
         )
-
         obs = result.get("observation", {})
         reward = result.get("reward", 0)
         done = result.get("done", False)
-
         print(f"  reward={reward} done={done}")
-
         if done:
             break
 
     print(f"[END] task_id={task_id}")
 
-
-# -------------------------
-# Main
-# -------------------------
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--url", required=True, help="Base URL of the logistics env")
+    # --url is now OPTIONAL with a default pointing to your HF Space
+    parser.add_argument(
+        "--url",
+        default="https://harshithakotvala-logistics-flow-env.hf.space",
+        help="Base URL of the logistics env"
+    )
     args = parser.parse_args()
-
     base_url = args.url.rstrip("/")
 
     for task_id in ["easy", "medium", "hard"]:
@@ -150,7 +117,6 @@ def main():
             run_task(base_url, task_id)
         except Exception as e:
             print(f"[ERROR] task_id={task_id} failed: {e}")
-
 
 if __name__ == "__main__":
     main()
