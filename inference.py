@@ -1,113 +1,141 @@
 import os
+import sys
 import json
+import argparse
+import requests
 from dotenv import load_dotenv
-from openai import OpenAI
-from env import LogisticsEnv, Action
 
 load_dotenv()
 
-# -------------------------
-# REQUIRED ENV VARIABLES (from judge)
-# -------------------------
 API_BASE_URL = os.getenv("API_BASE_URL")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
-API_KEY = os.getenv("API_KEY")
-
-# Initialize OpenAI client 
-client = OpenAI(
-    api_key=API_KEY,
-    base_url=API_BASE_URL
-)
+API_KEY = os.getenv("API_KEY", "dummy-key")  # never None
 
 # -------------------------
-# FALLBACK POLICY
+# OpenAI client — safe init
 # -------------------------
-def get_priority_value(priority):
-    return {"high": 3, "medium": 2, "low": 1}.get(priority, 0)
+client = None
 
-
-def fallback_action(observation):
-    sorted_orders = sorted(
-        observation.orders,
-        key=lambda x: get_priority_value(x.priority),
-        reverse=True
-    )
-
-    for order in sorted_orders:
-        if observation.inventory.get(order.item, 0) >= order.qty:
-            return Action(action_type="fulfill", order_id=order.id)
-
-    return Action(action_type="wait")
-
-
-# -------------------------
-# LLM ACTION (CRITICAL FIX)
-# -------------------------
-def get_model_action(observation, step):
+def get_client():
+    global client
+    if client is not None:
+        return client
     try:
-        response = client.chat.completions.create(
+        from openai import OpenAI
+        client = OpenAI(
+            api_key=API_KEY,
+            base_url=API_BASE_URL if API_BASE_URL else "https://api.openai.com/v1"
+        )
+        return client
+    except Exception:
+        return None
+
+
+# -------------------------
+# Priority helper
+# -------------------------
+def priority_value(p):
+    return {"high": 3, "medium": 2, "low": 1}.get(p, 0)
+
+
+# -------------------------
+# Fallback: rule-based agent
+# -------------------------
+def fallback_action(orders):
+    if not orders:
+        return None
+    sorted_orders = sorted(orders, key=lambda o: (o["deadline"], -priority_value(o["priority"])))
+    return sorted_orders[0]["id"]
+
+
+# -------------------------
+# LLM action
+# -------------------------
+def llm_action(orders, step):
+    c = get_client()
+    if c is None or not API_BASE_URL:
+        return fallback_action(orders)
+    try:
+        prompt = (
+            f"Step {step}. Warehouse orders: {json.dumps(orders)}. "
+            "Pick the best order_id to fulfill next. "
+            'Respond ONLY with JSON: {"order_id": <int>, "reasoning": "<str>"}'
+        )
+        response = c.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are a warehouse agent. Respond ONLY in JSON with action_type, order_id, item, quantity."
-                },
-                {
-                    "role": "user",
-                    "content": str(observation)
-                }
+                {"role": "system", "content": "You are a warehouse fulfillment agent."},
+                {"role": "user", "content": prompt}
             ],
             response_format={"type": "json_object"}
         )
-
-        action_dict = json.loads(response.choices[0].message.content)
-
-        return Action(
-            action_type=action_dict.get("action_type", "wait"),
-            order_id=action_dict.get("order_id"),
-            item=action_dict.get("item"),
-            quantity=action_dict.get("quantity")
-        )
-
+        data = json.loads(response.choices[0].message.content)
+        return int(data["order_id"])
     except Exception:
-        # If LLM fails → fallback
-        return fallback_action(observation)
+        return fallback_action(orders)
 
 
 # -------------------------
-# RUN TASK
+# Run one task via HTTP API
 # -------------------------
-def run_task(task_name, task_fn):
-    print(f"[START] {task_name.upper()}")
+def run_task(base_url, task_id):
+    print(f"[START] task_id={task_id}")
 
-    env = LogisticsEnv()
-    obs = env.reset(orders=task_fn())
+    # Reset
+    r = requests.post(f"{base_url}/reset", json={"task_id": task_id}, timeout=30)
+    r.raise_for_status()
+    obs = r.json()
 
-    for step in range(10):
-        print(f"[STEP {step}]")
+    for step in range(20):
+        orders = obs.get("orders", [])
+        done = obs.get("done", False)
 
-        action = get_model_action(obs, step)
+        if done or not orders:
+            break
 
-        obs, reward, done, _ = env.step(action)
+        order_id = llm_action(orders, step) if API_BASE_URL else fallback_action(orders)
 
-        print(f"Action: {action.action_type}")
-        print(f"Reward: {reward}")
+        if order_id is None:
+            break
+
+        reasoning = "Prioritized by deadline and priority weight"
+        print(f"[STEP {step}] order_id={order_id}")
+
+        r = requests.post(
+            f"{base_url}/step",
+            json={"order_id": order_id, "reasoning": reasoning},
+            timeout=30
+        )
+        r.raise_for_status()
+        result = r.json()
+
+        obs = result.get("observation", {})
+        reward = result.get("reward", 0)
+        done = result.get("done", False)
+
+        print(f"  reward={reward} done={done} feedback={obs.get('feedback', '')}")
 
         if done:
             break
 
-    print(f"[END] {task_name.upper()}")
+    print(f"[END] task_id={task_id}")
 
 
 # -------------------------
-# MAIN
+# Main
 # -------------------------
 def main():
-    from tasks import easy_task, medium_task, hard_task
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--url", required=True, help="Base URL of the logistics env")
+    args = parser.parse_args()
 
-    run_task("easy", easy_task)
-    run_task("medium", medium_task)
-    run_task("hard", hard_task)
+    base_url = args.url.rstrip("/")
+
+    for task_id in ["easy", "medium", "hard"]:
+        try:
+            run_task(base_url, task_id)
+        except Exception as e:
+            print(f"[ERROR] task_id={task_id} failed: {e}")
 
 
 if __name__ == "__main__":
