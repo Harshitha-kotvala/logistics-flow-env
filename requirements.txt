@@ -1,5 +1,6 @@
-fastapi
+echo "fastapi
 uvicorn
 pydantic
 python-dotenv
 openai
+requests" > requirements.txt
