@@ -23,19 +23,21 @@ class StepRequest(BaseModel):
     order_id: int
     reasoning: Optional[str] = ""
 
-def compute_reward(task_id, fulfilled_ids, all_orders):
-    if not all_orders:
+def safe_reward(raw):
+    """ALWAYS return strictly between 0 and 1"""
+    return round(min(0.99, max(0.01, float(raw))), 6)
+
+def compute_score():
+    if not current_all_orders:
         return 0.5
-    if task_id == "easy":
-        total = len(all_orders)
-        done = len(fulfilled_ids)
-        raw = done / total
+    if current_task_id == "easy":
+        total = len(current_all_orders)
+        done  = len(fulfilled_ids)
+        return safe_reward(done / total)
     else:
-        total_w = sum(WEIGHTS.get(o.priority, 1) for o in all_orders)
-        done_w  = sum(WEIGHTS.get(o.priority, 1) for o in all_orders if o.id in fulfilled_ids)
-        raw = done_w / total_w if total_w > 0 else 0
-    # STRICTLY between 0 and 1 — never 0.0 or 1.0
-    return round(max(0.01, min(0.99, raw + 0.001)), 6)
+        total_w = sum(WEIGHTS.get(o.priority, 1) for o in current_all_orders)
+        done_w  = sum(WEIGHTS.get(o.priority, 1) for o in current_all_orders if o.id in fulfilled_ids)
+        return safe_reward(done_w / total_w if total_w > 0 else 0)
 
 @app.get("/health")
 def health():
@@ -68,7 +70,7 @@ def reset(req: ResetRequest = None):
         "orders": [o.dict() for o in obs.orders],
         "step": obs.current_step,
         "done": False,
-        "feedback": f"Task {current_task_id} started with {len(current_all_orders)} orders"
+        "feedback": f"Task {current_task_id} started"
     }
 
 @app.post("/step")
@@ -76,15 +78,14 @@ def step(req: StepRequest):
     global fulfilled_ids
 
     action = Action(action_type=ActionType.FULFILL, order_id=req.order_id)
-    obs, _, done, info = env.step(action)
+    obs, _, done_env, info = env.step(action)
 
-    # Track fulfilled orders
     remaining_ids = [o.id for o in obs.orders]
     if req.order_id not in remaining_ids and req.order_id not in fulfilled_ids:
         fulfilled_ids.append(req.order_id)
 
     done = len(obs.orders) == 0
-    reward = compute_reward(current_task_id, fulfilled_ids, current_all_orders)
+    reward = compute_score()
 
     return {
         "observation": {
@@ -101,7 +102,6 @@ def step(req: StepRequest):
 @app.get("/state")
 def state():
     obs = env._get_observation()
-    _, grade_reward = compute_reward(current_task_id, fulfilled_ids, current_all_orders), None
     return {
         "orders": [o.dict() for o in obs.orders],
         "step": obs.current_step,
