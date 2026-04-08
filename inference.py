@@ -3,18 +3,16 @@ import json
 import urllib.request
 from openai import OpenAI
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "")
+# MUST use these exact env var names — injected by hackathon validator
+API_BASE_URL = os.environ["API_BASE_URL"]   # Will raise error if not set — good!
+API_KEY      = os.environ["API_KEY"]         # Will raise error if not set — good!
 MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-API_KEY      = os.environ.get("API_KEY", "dummy-key")
 
-if not API_BASE_URL:
-    raise RuntimeError("API_BASE_URL environment variable is not set!")
-
+# Clean up URL — do NOT append /v1, let the proxy handle routing
 base_url = API_BASE_URL.rstrip("/")
-if not base_url.endswith("/v1"):
-    base_url = base_url + "/v1"
 
 print(f"[CONFIG] base_url={base_url} model={MODEL_NAME}")
+
 client = OpenAI(api_key=API_KEY, base_url=base_url)
 
 def priority_value(p):
@@ -47,7 +45,8 @@ def llm_action(orders, step):
             {"role": "system", "content": "You are a warehouse fulfillment agent. Respond in JSON only."},
             {"role": "user", "content": prompt}
         ],
-        response_format={"type": "json_object"}
+        response_format={"type": "json_object"},
+        max_tokens=100
     )
     content = response.choices[0].message.content
     print(f"  [LLM] {content}")
@@ -91,7 +90,6 @@ def run_task(server_url, task_id):
     print(f"[END] {task_id.upper()}")
 
 def main():
-    # Use env var for server URL too, fallback to HF space
     server_url = os.environ.get(
         "SERVER_URL",
         "https://harshithakotvala-logistics-flow-env.hf.space"
