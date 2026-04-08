@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
 import sys
+
 sys.path.insert(0, "/app")
 
 from env import LogisticsEnv, Action, ActionType
@@ -10,20 +11,25 @@ from tasks import easy_task, medium_task, hard_task
 app = FastAPI()
 env = LogisticsEnv()
 
+
 class ResetRequest(BaseModel):
     task_id: Optional[str] = "easy"
+
 
 class StepRequest(BaseModel):
     order_id: int
     reasoning: Optional[str] = ""
 
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
+
 @app.get("/tasks")
 def get_tasks():
     return {"tasks": ["easy", "medium", "hard"]}
+
 
 @app.post("/reset")
 def reset(req: ResetRequest = None):
@@ -47,6 +53,7 @@ def reset(req: ResetRequest = None):
         "feedback": ""
     }
 
+
 @app.post("/step")
 def step(req: StepRequest):
     # Convert judge's {order_id} into env's Action format
@@ -54,6 +61,7 @@ def step(req: StepRequest):
         action_type=ActionType.FULFILL,
         order_id=req.order_id
     )
+
     obs, reward, done, info = env.step(action)
 
     return {
@@ -68,6 +76,7 @@ def step(req: StepRequest):
         "info": info if isinstance(info, dict) else {}
     }
 
+
 @app.get("/state")
 def state():
     obs = env._get_observation()
@@ -77,3 +86,12 @@ def state():
         "done": False,
         "feedback": ""
     }
+
+
+def main():
+    import uvicorn
+    uvicorn.run("server.app:app", host="0.0.0.0", port=7860)
+
+
+if __name__ == "__main__":
+    main()
