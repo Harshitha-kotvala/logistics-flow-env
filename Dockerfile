@@ -3,13 +3,7 @@ FROM python:3.10-slim
 WORKDIR /app
 
 COPY requirements.txt .
-
-RUN pip install --no-cache-dir \
-    fastapi==0.115.0 \
-    uvicorn==0.30.6 \
-    pydantic==2.7.4 \
-    python-dotenv==1.0.1 \
-    openai==1.35.0
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
