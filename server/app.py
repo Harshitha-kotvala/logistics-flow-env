@@ -24,7 +24,6 @@ class StepRequest(BaseModel):
     reasoning: Optional[str] = ""
 
 def safe_reward(raw):
-    """ALWAYS return strictly between 0 and 1"""
     return round(min(0.99, max(0.01, float(raw))), 6)
 
 def compute_score():
@@ -70,7 +69,8 @@ def reset(req: ResetRequest = None):
         "orders": [o.dict() for o in obs.orders],
         "step": obs.current_step,
         "done": False,
-        "feedback": f"Task {current_task_id} started"
+        "feedback": f"Task {current_task_id} started",
+        "reward": 0.5
     }
 
 @app.post("/step")
@@ -106,7 +106,8 @@ def state():
         "orders": [o.dict() for o in obs.orders],
         "step": obs.current_step,
         "done": False,
-        "feedback": ""
+        "feedback": "",
+        "reward": compute_score()
     }
 
 def main():
