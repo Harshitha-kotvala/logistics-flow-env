@@ -3,14 +3,11 @@ import json
 import urllib.request
 from openai import OpenAI
 
-# MUST use these exact env var names — injected by hackathon validator
-API_BASE_URL = os.environ["API_BASE_URL"]   # Will raise error if not set — good!
-API_KEY      = os.environ["API_KEY"]         # Will raise error if not set — good!
+API_BASE_URL = os.environ["API_BASE_URL"]
+API_KEY      = os.environ["API_KEY"]
 MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
 
-# Clean up URL — do NOT append /v1, let the proxy handle routing
 base_url = API_BASE_URL.rstrip("/")
-
 print(f"[CONFIG] base_url={base_url} model={MODEL_NAME}")
 
 client = OpenAI(api_key=API_KEY, base_url=base_url)
@@ -39,16 +36,22 @@ def llm_action(orders, step):
         "Pick ONE order_id to fulfill next (highest priority + nearest deadline).\n"
         'Respond ONLY with JSON: {"order_id": <int>, "reasoning": "<str>"}'
     )
+    # REMOVED response_format — LiteLLM proxies often reject it causing silent fallback
     response = client.chat.completions.create(
         model=MODEL_NAME,
         messages=[
-            {"role": "system", "content": "You are a warehouse fulfillment agent. Respond in JSON only."},
+            {"role": "system", "content": "You are a warehouse fulfillment agent. Respond in JSON only, no markdown."},
             {"role": "user", "content": prompt}
         ],
-        response_format={"type": "json_object"},
-        max_tokens=100
+        max_tokens=150
     )
-    content = response.choices[0].message.content
+    content = response.choices[0].message.content.strip()
+    # Strip markdown if model wraps in code blocks
+    if content.startswith("```"):
+        content = content.split("```")[1]
+        if content.startswith("json"):
+            content = content[4:]
+        content = content.strip()
     print(f"  [LLM] {content}")
     return int(json.loads(content)["order_id"])
 
@@ -65,13 +68,16 @@ def run_task(server_url, task_id):
         done   = obs.get("done", False)
         if done or not orders:
             break
+
         try:
             order_id = llm_action(orders, step)
         except Exception as e:
-            print(f"  [LLM ERROR] {e}")
+            print(f"  [LLM ERROR] {e}")  # Log the REAL error so you can debug
             order_id = fallback_action(orders)
+
         if order_id is None:
             break
+
         print(f"[STEP {step}] order_id={order_id}")
         try:
             result = http_post(
@@ -85,8 +91,10 @@ def run_task(server_url, task_id):
         except Exception as e:
             print(f"  [STEP ERROR] {e}")
             break
+
         if done:
             break
+
     print(f"[END] {task_id.upper()}")
 
 def main():
