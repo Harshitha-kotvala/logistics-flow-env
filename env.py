@@ -204,6 +204,7 @@ class LogisticsEnv:
         # -------------------------
         done = self._check_done()
 
+        reward = round(min(0.99, max(0.01, float(reward))), 6)
         return self._get_observation(), reward, done, info
 
 
