@@ -1,22 +1,20 @@
 import os
 import json
-import argparse
 import urllib.request
-from dotenv import load_dotenv
 from openai import OpenAI
-
-load_dotenv()
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "")
 MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
 API_KEY      = os.environ.get("API_KEY", "dummy-key")
 
-base_url = API_BASE_URL.rstrip("/") if API_BASE_URL else "https://api.openai.com/v1"
-if API_BASE_URL and not base_url.endswith("/v1"):
+if not API_BASE_URL:
+    raise RuntimeError("API_BASE_URL environment variable is not set!")
+
+base_url = API_BASE_URL.rstrip("/")
+if not base_url.endswith("/v1"):
     base_url = base_url + "/v1"
 
 print(f"[CONFIG] base_url={base_url} model={MODEL_NAME}")
-
 client = OpenAI(api_key=API_KEY, base_url=base_url)
 
 def priority_value(p):
@@ -55,10 +53,10 @@ def llm_action(orders, step):
     print(f"  [LLM] {content}")
     return int(json.loads(content)["order_id"])
 
-def run_task(base_url, task_id):
+def run_task(server_url, task_id):
     print(f"[START] {task_id.upper()}")
     try:
-        obs = http_post(f"{base_url}/reset", {"task_id": task_id})
+        obs = http_post(f"{server_url}/reset", {"task_id": task_id})
     except Exception as e:
         print(f"[END] {task_id.upper()} ERROR={e}")
         return
@@ -68,20 +66,17 @@ def run_task(base_url, task_id):
         done   = obs.get("done", False)
         if done or not orders:
             break
-
         try:
             order_id = llm_action(orders, step)
         except Exception as e:
             print(f"  [LLM ERROR] {e}")
             order_id = fallback_action(orders)
-
         if order_id is None:
             break
-
         print(f"[STEP {step}] order_id={order_id}")
         try:
             result = http_post(
-                f"{base_url}/step",
+                f"{server_url}/step",
                 {"order_id": order_id, "reasoning": "LLM decision"}
             )
             obs    = result.get("observation", {})
@@ -91,19 +86,19 @@ def run_task(base_url, task_id):
         except Exception as e:
             print(f"  [STEP ERROR] {e}")
             break
-
         if done:
             break
-
     print(f"[END] {task_id.upper()}")
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--url", default="https://harshithakotvala-logistics-flow-env.hf.space")
-    args = parser.parse_args()
-    env_url = args.url.rstrip("/")
+    # Use env var for server URL too, fallback to HF space
+    server_url = os.environ.get(
+        "SERVER_URL",
+        "https://harshithakotvala-logistics-flow-env.hf.space"
+    ).rstrip("/")
+
     for task_id in ["easy", "medium", "hard"]:
-        run_task(env_url, task_id)
+        run_task(server_url, task_id)
 
 if __name__ == "__main__":
     main()
