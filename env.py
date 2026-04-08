@@ -63,8 +63,8 @@ class LogisticsEnv:
         self.current_step = 0
 
         self.inventory = {
-            "laptop": 2,
-            "phone": 3
+            "laptop": 10,
+            "phone": 10
         }
 
         if orders:
