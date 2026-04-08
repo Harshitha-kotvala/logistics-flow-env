@@ -3,15 +3,25 @@ import json
 import urllib.request
 from openai import OpenAI
 
-# MUST use injected env variables
-API_BASE_URL = os.environ["API_BASE_URL"]
-API_KEY      = os.environ["API_KEY"]
-MODEL_NAME   = os.getenv("MODEL_NAME", "gpt-4o-mini")
+# ✅ Use injected values FIRST
+API_BASE_URL = os.getenv("API_BASE_URL")
+API_KEY      = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
+MODEL_NAME   = os.getenv("MODEL_NAME", "gpt-4o")
+
+# 🚨 CRITICAL: DO NOT FALLBACK TO OPENAI URL
+if not API_BASE_URL:
+    raise RuntimeError("API_BASE_URL not set — proxy not used!")
+
+if not API_KEY:
+    raise RuntimeError("API_KEY/HF_TOKEN not set!")
 
 base_url = API_BASE_URL.rstrip("/")
 print(f"[CONFIG] base_url={base_url} model={MODEL_NAME}")
 
-client = OpenAI(api_key=API_KEY, base_url=base_url)
+client = OpenAI(
+    api_key=API_KEY,
+    base_url=base_url
+)
 
 
 def priority_value(p):
@@ -30,7 +40,8 @@ def fallback_action(orders):
 def http_post(url, payload):
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        url, data=data,
+        url,
+        data=data,
         headers={"Content-Type": "application/json"},
         method="POST"
     )
@@ -40,34 +51,36 @@ def http_post(url, payload):
 
 def llm_action(orders, step):
     prompt = (
-        f"Step {step}. Warehouse orders: {json.dumps(orders)}.\n"
-        "Pick ONE order_id to fulfill next (highest priority + nearest deadline).\n"
-        'Respond ONLY with JSON: {"order_id": <int>, "reasoning": "<str>"}'
+        f"Step {step}. Orders: {json.dumps(orders)}.\n"
+        "Return ONLY JSON: {\"order_id\": <int>}"
     )
 
-    # ❌ removed response_format (IMPORTANT)
-    response = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[
-            {"role": "system", "content": "Respond ONLY with JSON. No markdown."},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=150
-    )
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "Return ONLY JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=100
+        )
 
-    content = response.choices[0].message.content.strip()
+        content = response.choices[0].message.content.strip()
 
-    # handle markdown responses
-    if content.startswith("```"):
-        content = content.split("```")[1]
-        if content.startswith("json"):
-            content = content[4:]
-        content = content.strip()
+        # clean markdown
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
 
-    print(f"  [LLM] {content}")
+        print(f"[LLM SUCCESS] {content}")
 
-    parsed = json.loads(content)
-    return int(parsed["order_id"])
+        return int(json.loads(content)["order_id"])
+
+    except Exception as e:
+        print(f"[LLM ERROR] {e}")
+        return None
 
 
 def run_task(server_url, task_id):
@@ -86,10 +99,9 @@ def run_task(server_url, task_id):
         if done or not orders:
             break
 
-        try:
-            order_id = llm_action(orders, step)
-        except Exception as e:
-            print(f"  [LLM ERROR] {e}")
+        order_id = llm_action(orders, step)
+
+        if order_id is None:
             order_id = fallback_action(orders)
 
         if order_id is None:
@@ -102,12 +114,15 @@ def run_task(server_url, task_id):
                 f"{server_url}/step",
                 {"order_id": order_id, "reasoning": "LLM decision"}
             )
+
             obs    = result.get("observation", {})
             reward = result.get("reward", 0)
             done   = result.get("done", False)
+
             print(f"  reward={reward} done={done}")
+
         except Exception as e:
-            print(f"  [STEP ERROR] {e}")
+            print(f"[STEP ERROR] {e}")
             break
 
         if done:
