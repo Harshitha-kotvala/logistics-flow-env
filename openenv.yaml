@@ -4,34 +4,32 @@ description: >
   A warehouse management simulation where an agent manages inventory,
   fulfills orders, and minimizes penalties under time constraints.
 
-entrypoint: app:app
+entrypoint: server.app:app
+
+tasks:
+  - id: easy
+    description: Single low-priority laptop order with a lenient deadline
+  - id: medium
+    description: Three laptop orders with mixed priorities and tight deadlines
+  - id: hard
+    description: Five high-priority laptop orders with short deadlines
 
 observation_space:
   type: object
   properties:
-    inventory:
-      type: object
     orders:
       type: array
-    delayed_orders:
-      type: array
-    inbound_shipments:
-      type: array
-    current_step:
+    step:
       type: integer
-    total_penalty:
-      type: number
-    fulfilled_orders:
-      type: integer
+    done:
+      type: boolean
+    feedback:
+      type: string
 
 action_space:
   type: object
   properties:
-    action_type:
-      type: string
     order_id:
       type: integer
-    item:
+    reasoning:
       type: string
-    quantity:
-      type: integer
