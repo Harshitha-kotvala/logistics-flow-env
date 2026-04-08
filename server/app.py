@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
-import sys, os
+import sys
 sys.path.insert(0, "/app")
 
-from env import LogisticsEnv
+from env import LogisticsEnv, Action, ActionType
 from tasks import easy_task, medium_task, hard_task
 
 app = FastAPI()
@@ -39,23 +39,29 @@ def reset(req: ResetRequest = None):
         orders = hard_task()
 
     obs = env.reset(orders=orders)
+
     return {
         "orders": [o.dict() for o in obs.orders],
-        "step": obs.step,
+        "step": obs.current_step,
         "done": False,
         "feedback": ""
     }
 
 @app.post("/step")
 def step(req: StepRequest):
-    action_data = req
-    obs, reward, done, info = env.step(action_data)
+    # Convert judge's {order_id} into env's Action format
+    action = Action(
+        action_type=ActionType.FULFILL,
+        order_id=req.order_id
+    )
+    obs, reward, done, info = env.step(action)
+
     return {
         "observation": {
             "orders": [o.dict() for o in obs.orders],
-            "step": obs.step,
+            "step": obs.current_step,
             "done": done,
-            "feedback": info.get("feedback", "") if isinstance(info, dict) else ""
+            "feedback": info.get("feedback", info.get("error", "")) if isinstance(info, dict) else ""
         },
         "reward": reward,
         "done": done,
@@ -67,7 +73,7 @@ def state():
     obs = env._get_observation()
     return {
         "orders": [o.dict() for o in obs.orders],
-        "step": obs.step,
+        "step": obs.current_step,
         "done": False,
         "feedback": ""
     }
