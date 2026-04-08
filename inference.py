@@ -80,7 +80,10 @@ def run_task(base_url, task_id):
 
         print(f"[STEP {step}] order_id={order_id}")
         try:
-            result = http_post(f"{base_url}/step", {"order_id": order_id, "reasoning": "LLM decision"})
+            result = http_post(
+                f"{base_url}/step",
+                {"order_id": order_id, "reasoning": "LLM decision"}
+            )
             obs    = result.get("observation", {})
             reward = result.get("reward", 0)
             done   = result.get("done", False)
