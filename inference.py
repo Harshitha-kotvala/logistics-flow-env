@@ -3,9 +3,10 @@ import json
 import urllib.request
 from openai import OpenAI
 
-API_BASE_URL = os.environ["API_BASE_URL"]
-API_KEY      = os.environ["API_KEY"]
-MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME   = os.getenv("MODEL_NAME", "gpt-4o-mini")
+API_KEY      = os.getenv("API_KEY", "dummy-key")
+HF_TOKEN     = os.getenv("HF_TOKEN")
 
 base_url = API_BASE_URL.rstrip("/")
 print(f"[CONFIG] base_url={base_url} model={MODEL_NAME}")
@@ -36,7 +37,6 @@ def llm_action(orders, step):
         "Pick ONE order_id to fulfill next (highest priority + nearest deadline).\n"
         'Respond ONLY with JSON: {"order_id": <int>, "reasoning": "<str>"}'
     )
-    # REMOVED response_format — LiteLLM proxies often reject it causing silent fallback
     response = client.chat.completions.create(
         model=MODEL_NAME,
         messages=[
@@ -46,7 +46,6 @@ def llm_action(orders, step):
         max_tokens=150
     )
     content = response.choices[0].message.content.strip()
-    # Strip markdown if model wraps in code blocks
     if content.startswith("```"):
         content = content.split("```")[1]
         if content.startswith("json"):
@@ -72,7 +71,7 @@ def run_task(server_url, task_id):
         try:
             order_id = llm_action(orders, step)
         except Exception as e:
-            print(f"  [LLM ERROR] {e}")  # Log the REAL error so you can debug
+            print(f"  [LLM ERROR] {e}")
             order_id = fallback_action(orders)
 
         if order_id is None:
@@ -98,7 +97,7 @@ def run_task(server_url, task_id):
     print(f"[END] {task_id.upper()}")
 
 def main():
-    server_url = os.environ.get(
+    server_url = os.getenv(
         "SERVER_URL",
         "https://harshithakotvala-logistics-flow-env.hf.space"
     ).rstrip("/")
