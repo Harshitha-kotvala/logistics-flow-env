@@ -56,11 +56,15 @@ def reset(req: ResetRequest = None):
     obs = env.reset(orders=list(current_all_orders))
 
     return {
-        "orders": [o.dict() for o in obs.orders],
-        "step": obs.current_step,
+        "observation": {
+            "orders": [o.dict() for o in obs.orders],
+            "step": obs.current_step,
+            "done": False,
+            "feedback": f"Task {current_task_id} started"
+        },
+        "reward": 0.5,
         "done": False,
-        "feedback": f"Task {current_task_id} started",
-        "reward": 0.5
+        "info": {}
     }
 
 @app.post("/step")
@@ -88,11 +92,15 @@ def state():
     obs = env._get_observation()
     reward = GRADERS[current_task_id](env)
     return {
-        "orders": [o.dict() for o in obs.orders],
-        "step": obs.current_step,
+        "observation": {
+            "orders": [o.dict() for o in obs.orders],
+            "step": obs.current_step,
+            "done": False,
+            "feedback": ""
+        },
+        "reward": reward,
         "done": False,
-        "feedback": "",
-        "reward": reward
+        "info": {}
     }
 
 def main():
