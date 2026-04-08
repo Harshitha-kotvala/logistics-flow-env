@@ -2,7 +2,10 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
 import sys
-sys.path.insert(0, "/app")
+import os
+
+# Ensure local imports work in Docker/HF Environments
+sys.path.insert(0, os.getcwd())
 
 from env import LogisticsEnv, Action, ActionType
 from tasks import (
@@ -18,6 +21,7 @@ GRADERS = {
     "hard":   grade_hard,
 }
 
+# Global state
 current_task_id = "easy"
 current_all_orders = []
 env = LogisticsEnv()
@@ -33,18 +37,15 @@ class StepRequest(BaseModel):
 def health():
     return {"status": "ok"}
 
-@app.get("/tasks")
-def get_tasks():
-    return {"tasks": ["easy", "medium", "hard"]}
-
 @app.post("/reset")
 def reset(req: ResetRequest = None):
     global current_task_id, current_all_orders, env
-
+    
     current_task_id = (req.task_id if req and req.task_id else "easy")
-    if current_task_id not in ["easy", "medium", "hard"]:
+    if current_task_id not in GRADERS:
         current_task_id = "easy"
 
+    # Load appropriate task list
     if current_task_id == "easy":
         current_all_orders = easy_task()
     elif current_task_id == "medium":
@@ -52,9 +53,13 @@ def reset(req: ResetRequest = None):
     else:
         current_all_orders = hard_task()
 
+    # Re-initialize environment
     env = LogisticsEnv()
     obs = env.reset(orders=list(current_all_orders))
-
+    
+    # CRITICAL: Use grader for reset reward to avoid 0.0/1.0/0.5 inconsistencies
+    reward = GRADERS[current_task_id](env)
+    
     return {
         "observation": {
             "orders": [o.dict() for o in obs.orders],
@@ -62,19 +67,23 @@ def reset(req: ResetRequest = None):
             "done": False,
             "feedback": f"Task {current_task_id} started"
         },
-        "reward": 0.5,
+        "reward": reward,
         "done": False,
         "info": {}
     }
 
 @app.post("/step")
 def step(req: StepRequest):
+    # Execute fulfillment action
     action = Action(action_type=ActionType.FULFILL, order_id=req.order_id)
     obs, _, done_env, info = env.step(action)
-
-    done = len(obs.orders) == 0
+    
+    # Task is done if environment says so or all orders are cleared
+    done = done_env or len(obs.orders) == 0
+    
+    # Calculate score using the safe grader
     reward = GRADERS[current_task_id](env)
-
+    
     return {
         "observation": {
             "orders": [o.dict() for o in obs.orders],
@@ -103,9 +112,8 @@ def state():
         "info": {}
     }
 
-def main():
-    import uvicorn
-    uvicorn.run("server.app:app", host="0.0.0.0", port=7860)
-
 if __name__ == "__main__":
-    main()
+    import uvicorn
+    # Use environment variables for port if provided (standard for HF/Docker)
+    port = int(os.environ.get("PORT", 7860))
+    uvicorn.run(app, host="0.0.0.0", port=port)
