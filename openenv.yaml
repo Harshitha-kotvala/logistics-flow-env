@@ -3,9 +3,7 @@ name: Logistics Flow Environment
 description: >
   A warehouse management simulation where an agent manages inventory,
   fulfills orders, and minimizes penalties under time constraints.
-
 entrypoint: server.app:app
-
 tasks:
   - id: easy
     description: Single low-priority laptop order with a lenient deadline
@@ -13,7 +11,6 @@ tasks:
     description: Three laptop orders with mixed priorities and tight deadlines
   - id: hard
     description: Five high-priority laptop orders with short deadlines
-
 observation_space:
   type: object
   properties:
@@ -25,7 +22,6 @@ observation_space:
       type: boolean
     feedback:
       type: string
-
 action_space:
   type: object
   properties:
@@ -33,3 +29,11 @@ action_space:
       type: integer
     reasoning:
       type: string
+env_vars:
+  - name: API_KEY
+    required: true
+  - name: API_BASE_URL
+    required: true
+  - name: MODEL_NAME
+    required: false
+    default: gpt-4o-mini
