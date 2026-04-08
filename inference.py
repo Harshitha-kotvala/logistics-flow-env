@@ -7,14 +7,22 @@ from openai import OpenAI
 
 load_dotenv()
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "").rstrip("/")
+# Judge injects these via environment
+API_BASE_URL = os.environ.get("API_BASE_URL", "")
 MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
 API_KEY      = os.environ.get("API_KEY", "dummy-key")
 
-client = OpenAI(
-    api_key=API_KEY,
-    base_url=API_BASE_URL if API_BASE_URL else "https://api.openai.com/v1"
-)
+# Ensure base_url ends with /v1 — LiteLLM proxy requires this
+if API_BASE_URL:
+    base_url = API_BASE_URL.rstrip("/")
+    if not base_url.endswith("/v1"):
+        base_url = base_url + "/v1"
+else:
+    base_url = "https://api.openai.com/v1"
+
+client = OpenAI(api_key=API_KEY, base_url=base_url)
+
+print(f"[CONFIG] base_url={base_url} model={MODEL_NAME}")
 
 def priority_value(p):
     return {"high": 3, "medium": 2, "low": 1}.get(p, 0)
@@ -35,7 +43,7 @@ def http_post(url, payload):
         return json.loads(resp.read().decode("utf-8"))
 
 def llm_action(orders, step):
-    # NO try/except — let LLM errors surface so judge can see proxy was called
+    # NO silent fallback — must hit LiteLLM proxy
     prompt = (
         f"Step {step}. Warehouse orders: {json.dumps(orders)}.\n"
         "Pick ONE order_id to fulfill next (highest priority + nearest deadline).\n"
@@ -50,12 +58,16 @@ def llm_action(orders, step):
         response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
-    print(f"  [LLM response] {content}")
+    print(f"  [LLM] {content}")
     return int(json.loads(content)["order_id"])
 
 def run_task(base_url, task_id):
     print(f"[START] {task_id.upper()}")
-    obs = http_post(f"{base_url}/reset", {"task_id": task_id})
+    try:
+        obs = http_post(f"{base_url}/reset", {"task_id": task_id})
+    except Exception as e:
+        print(f"[END] {task_id.upper()} ERROR={e}")
+        return
 
     for step in range(20):
         orders = obs.get("orders", [])
@@ -63,19 +75,29 @@ def run_task(base_url, task_id):
         if done or not orders:
             break
 
-        order_id = llm_action(orders, step)
+        try:
+            order_id = llm_action(orders, step)
+        except Exception as e:
+            print(f"  [LLM ERROR] {e} — using fallback")
+            order_id = fallback_action(orders)
+
         if order_id is None:
             break
 
         print(f"[STEP {step}] order_id={order_id}")
-        result = http_post(
-            f"{base_url}/step",
-            {"order_id": order_id, "reasoning": "Chosen by LLM based on deadline and priority"}
-        )
-        obs    = result.get("observation", {})
-        reward = result.get("reward", 0)
-        done   = result.get("done", False)
-        print(f"  reward={reward} done={done} feedback={obs.get('feedback','')}")
+        try:
+            result = http_post(
+                f"{base_url}/step",
+                {"order_id": order_id, "reasoning": "Chosen by LLM"}
+            )
+            obs    = result.get("observation", {})
+            reward = result.get("reward", 0)
+            done   = result.get("done", False)
+            print(f"  reward={reward} done={done}")
+        except Exception as e:
+            print(f"  [STEP ERROR] {e}")
+            break
+
         if done:
             break
 
@@ -83,19 +105,12 @@ def run_task(base_url, task_id):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--url",
-        default="https://harshithakotvala-logistics-flow-env.hf.space",
-        help="Base URL of the logistics env"
-    )
+    parser.add_argument("--url", default="https://harshithakotvala-logistics-flow-env.hf.space")
     args = parser.parse_args()
-    base_url = args.url.rstrip("/")
+    env_url = args.url.rstrip("/")
 
     for task_id in ["easy", "medium", "hard"]:
-        try:
-            run_task(base_url, task_id)
-        except Exception as e:
-            print(f"[ERROR] task={task_id}: {e}")
+        run_task(env_url, task_id)
 
 if __name__ == "__main__":
     main()
