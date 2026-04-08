@@ -24,24 +24,30 @@ def hard_task():
     ]
 
 def _safe(raw):
-    return round(min(0.99, max(0.01, float(raw))), 6)
+    val = float(raw)
+    if val <= 0.0:
+        return 0.01
+    if val >= 1.0:
+        return 0.99
+    return round(val, 6)
 
 def grade_easy(env) -> float:
-    remaining = len(env.orders)
-    total = 1
-    fulfilled = total - remaining
-    return _safe(fulfilled / total)
+    all_orders = easy_task()
+    total_w = len(all_orders)
+    remaining_ids = {o.id for o in env.orders}
+    fulfilled_w = sum(1 for o in all_orders if o.id not in remaining_ids)
+    return _safe(fulfilled_w / total_w)
 
 def grade_medium(env) -> float:
     all_orders = medium_task()
     total_w = sum(WEIGHTS.get(o.priority, 1) for o in all_orders)
-    remaining_ids = [o.id for o in env.orders]
+    remaining_ids = {o.id for o in env.orders}
     fulfilled_w = sum(WEIGHTS.get(o.priority, 1) for o in all_orders if o.id not in remaining_ids)
-    return _safe(fulfilled_w / total_w if total_w > 0 else 0)
+    return _safe(fulfilled_w / total_w)
 
 def grade_hard(env) -> float:
     all_orders = hard_task()
     total_w = sum(WEIGHTS.get(o.priority, 1) for o in all_orders)
-    remaining_ids = [o.id for o in env.orders]
+    remaining_ids = {o.id for o in env.orders}
     fulfilled_w = sum(WEIGHTS.get(o.priority, 1) for o in all_orders if o.id not in remaining_ids)
-    return _safe(fulfilled_w / total_w if total_w > 0 else 0)
+    return _safe(fulfilled_w / total_w)
