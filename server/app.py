@@ -2,7 +2,8 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, "/app")
+
 from env import LogisticsEnv
 from tasks import easy_task, medium_task, hard_task
 
@@ -21,18 +22,22 @@ def health():
     return {"status": "ok"}
 
 @app.get("/tasks")
-def tasks():
+def get_tasks():
     return {"tasks": ["easy", "medium", "hard"]}
 
 @app.post("/reset")
 def reset(req: ResetRequest = None):
-    task_id = (req.task_id if req else None) or "easy"
+    task_id = "easy"
+    if req and req.task_id:
+        task_id = req.task_id
+
     if task_id == "easy":
         orders = easy_task()
     elif task_id == "medium":
         orders = medium_task()
     else:
         orders = hard_task()
+
     obs = env.reset(orders=orders)
     return {
         "orders": [o.dict() for o in obs.orders],
@@ -43,17 +48,18 @@ def reset(req: ResetRequest = None):
 
 @app.post("/step")
 def step(req: StepRequest):
-    obs, reward, done, info = env.step(req)
+    action_data = req
+    obs, reward, done, info = env.step(action_data)
     return {
         "observation": {
             "orders": [o.dict() for o in obs.orders],
             "step": obs.step,
             "done": done,
-            "feedback": info.get("feedback", "")
+            "feedback": info.get("feedback", "") if isinstance(info, dict) else ""
         },
         "reward": reward,
         "done": done,
-        "info": info
+        "info": info if isinstance(info, dict) else {}
     }
 
 @app.get("/state")
@@ -62,5 +68,6 @@ def state():
     return {
         "orders": [o.dict() for o in obs.orders],
         "step": obs.step,
-        "done": False
+        "done": False,
+        "feedback": ""
     }
