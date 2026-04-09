@@ -8,9 +8,10 @@ A warehouse order fulfillment environment built for the Meta x PyTorch OpenEnv H
 
 Real-world warehouses face constant pressure to fulfill orders before deadlines while balancing priorities. This environment simulates that challenge in a controlled, reproducible setting — making it useful for training and benchmarking RL agents on logistics tasks.
 
----
 
 ## Project Structure
+
+```
 logistics-flow-env/
 ├── app.py              # Main FastAPI application
 ├── server/app.py       # Server entrypoint
@@ -20,9 +21,7 @@ logistics-flow-env/
 ├── openenv.yaml        # OpenEnv specification
 ├── Dockerfile
 └── requirements.txt
-
----
-
+```
 ## Tasks
 
 Three tasks of increasing difficulty, all involving laptop orders:
