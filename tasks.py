@@ -1,9 +1,33 @@
+from env import Order
+
+WEIGHTS = {"low": 1, "medium": 2, "high": 3}
+
+def easy_task():
+    return [
+        Order(id=1, item="laptop", qty=1, deadline=3, late_penalty=0.2, priority="low")
+    ]
+
+def medium_task():
+    return [
+        Order(id=1, item="laptop", qty=1, deadline=2, late_penalty=0.3, priority="high"),
+        Order(id=2, item="laptop", qty=1, deadline=4, late_penalty=0.1, priority="low"),
+        Order(id=3, item="laptop", qty=1, deadline=3, late_penalty=0.2, priority="medium"),
+    ]
+
+def hard_task():
+    return [
+        Order(id=1, item="laptop", qty=1, deadline=1, late_penalty=0.5, priority="high"),
+        Order(id=2, item="laptop", qty=1, deadline=2, late_penalty=0.4, priority="high"),
+        Order(id=3, item="laptop", qty=1, deadline=2, late_penalty=0.4, priority="high"),
+        Order(id=4, item="laptop", qty=1, deadline=3, late_penalty=0.3, priority="medium"),
+        Order(id=5, item="laptop", qty=1, deadline=4, late_penalty=0.2, priority="low"),
+    ]
+
 def grade_easy(env) -> float:
     try:
         remaining = len(env.orders)
         total = 1
         score = (total - remaining) / total
-        # Map to (0.1, 0.9) range - never 0 or 1
         return round(0.1 + score * 0.8, 4)
     except Exception:
         return 0.5
