@@ -1,27 +1,13 @@
 from env import Order
 
-# -------------------------
-# CONSTANTS & HELPERS
-# -------------------------
 WEIGHTS = {"low": 1, "medium": 2, "high": 3}
 
-def _safe(raw):
-    """Ensures reward is strictly between 0 and 1 (banned: 0.0, 1.0)"""
-    val = float(raw)
-    if val <= 0.0:
-        return 0.01
-    if val >= 1.0:
-        return 0.99
-    # Keep precision clean for the validator
-    return max(0.01, min(0.99, round(val, 6)))
 
-# -------------------------
-# TASK DEFINITIONS
-# -------------------------
 def easy_task():
     return [
         Order(id=1, item="laptop", qty=1, deadline=3, late_penalty=0.2, priority="low")
     ]
+
 
 def medium_task():
     return [
@@ -29,6 +15,7 @@ def medium_task():
         Order(id=2, item="laptop", qty=1, deadline=4, late_penalty=0.1, priority="low"),
         Order(id=3, item="laptop", qty=1, deadline=3, late_penalty=0.2, priority="medium"),
     ]
+
 
 def hard_task():
     return [
@@ -39,23 +26,38 @@ def hard_task():
         Order(id=5, item="laptop", qty=1, deadline=4, late_penalty=0.2, priority="low"),
     ]
 
-# -------------------------
-# GRADERS
-# -------------------------
+
 def grade_easy(env) -> float:
-    total = len(easy_task())
-    fulfilled = getattr(env, 'fulfilled_orders', 0)
-    score = fulfilled / total if total > 0 else 0.0
-    return _safe(score)
+    remaining = len(env.orders)
+    if remaining == 0:
+        return 0.95   # all fulfilled
+    return 0.05       # nothing fulfilled
+
 
 def grade_medium(env) -> float:
-    total = len(medium_task())
-    fulfilled = getattr(env, 'fulfilled_orders', 0)
-    score = fulfilled / total if total > 0 else 0.0
-    return _safe(score)
+    all_orders = medium_task()
+    remaining_ids = {o.id for o in env.orders}
+    total_w = sum(WEIGHTS.get(o.priority, 1) for o in all_orders)
+    done_w  = sum(WEIGHTS.get(o.priority, 1) for o in all_orders if o.id not in remaining_ids)
+
+    if done_w == 0:
+        return 0.05
+    if done_w == total_w:
+        return 0.95
+    # partial — safe values between 0.1 and 0.9
+    ratio = done_w / total_w
+    return round(0.1 + ratio * 0.8, 4)
+
 
 def grade_hard(env) -> float:
-    total = len(hard_task())
-    fulfilled = getattr(env, 'fulfilled_orders', 0)
-    score = fulfilled / total if total > 0 else 0.0
-    return _safe(score)
+    all_orders = hard_task()
+    remaining_ids = {o.id for o in env.orders}
+    total_w = sum(WEIGHTS.get(o.priority, 1) for o in all_orders)
+    done_w  = sum(WEIGHTS.get(o.priority, 1) for o in all_orders if o.id not in remaining_ids)
+
+    if done_w == 0:
+        return 0.05
+    if done_w == total_w:
+        return 0.95
+    ratio = done_w / total_w
+    return round(0.1 + ratio * 0.8, 4)
